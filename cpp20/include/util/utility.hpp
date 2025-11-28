@@ -328,3 +328,26 @@ inline bool walkDir(const char *dir_cstr) {
   }
   return all_ok;
 }
+
+// ==================================
+// Supporto a lettura chunk paralleli
+// ==================================
+
+namespace util {
+
+/// Calcolo dell’offset: seq * chunk_size
+inline std::size_t chunk_offset(std::size_t seq, std::size_t chunk_size) {
+  return seq * chunk_size;
+}
+
+/// Thread-safe: ogni chiamante apre il file in lettura da solo
+/// Usata da chunk_task() (compressor e decompressor)
+/// read_chunk(path, offset, max_len)
+std::vector<std::uint8_t> read_chunk(const std::string &path,
+                                     std::size_t offset, std::size_t max_len);
+
+/// Il writer è single-thread: fd_out è usato da un solo thread
+/// write_chunk(fd, data, len)
+void write_chunk(std::FILE *f, const std::uint8_t *data, std::size_t len);
+
+} // namespace util
