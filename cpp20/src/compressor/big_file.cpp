@@ -121,8 +121,24 @@ void writer_task(big_file_context &ctx) {
       // Libero la lock fino a che non è pronto
       lk.unlock();
       // Inizio la fase di scrittura fuori area critica
-      for (auto &cc : local)
+      // Scrivo come metadato la lunghezza del chunk compresso
+      // così che alla decompressione si sappia quanto è grande il chunk da
+      // decomprimere
+      for (auto &cc : local) {
+        // Lunghezza del chunk compresso in byte (uint64_t per portabilità)
+        const std::uint64_t len = static_cast<std::uint64_t>(cc.size());
+
+        // Scrive sul file la lunghezza del chunk (8 byte)
+        // In modo che il decompressore sappia quanti byte leggere dopo.
+        // TODO indicizzazione 8 byte esagereta, dopo trovare metodo migliore
+        // possibile rifare tutto a 32 bit
+        util::write_chunk(ctx.fd_out,
+                          reinterpret_cast<const std::uint8_t *>(&len),
+                          sizeof(len));
+
+        // Scrive il contenuto del chunk compresso
         util::write_chunk(ctx.fd_out, cc.data(), cc.size());
+      }
 
       // riprendo la lock e alla prossima iterazione mi rimetto in attesa sulla
       // CV
