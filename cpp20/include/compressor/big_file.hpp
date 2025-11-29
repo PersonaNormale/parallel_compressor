@@ -26,7 +26,7 @@ struct chunk_entry {
 /// Contesto condiviso tra tutti i task che partecipano alla compressione di un
 /// big file.
 struct big_file_context {
-  threadPool* pool;
+  threadPool *pool;
 
   std::filesystem::path input_path; /// path del file sorgente
   file_descriptor fd_out{};         /// file di output
@@ -50,6 +50,7 @@ void writer_task(big_file_context &ctx);
 
 /// Task di alto livello: prepara il contesto e programma chunk_task +
 /// writer_task.
-bool compress_big_file(const std::filesystem::path &input_path);
+bool compress_big_file(threadPool &pool,
+                       const std::filesystem::path &input_path);
 
 } // namespace compressor
