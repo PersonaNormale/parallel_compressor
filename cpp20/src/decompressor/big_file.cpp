@@ -15,8 +15,8 @@ namespace {
 decompressed_chunk decompress_buffer(const decompressed_chunk &decompressed) {
   size_t out_size = 0;
   void *out = tinfl_decompress_mem_to_heap(
-      decompressed.data(),           // input buffer
-      decompressed.size(),           // input size
+      decompressed.data(),         // input buffer
+      decompressed.size(),         // input size
       &out_size,                   // output size
       TINFL_FLAG_PARSE_ZLIB_HEADER // ZLIB header, speculare al compressore
   );
@@ -94,8 +94,8 @@ void chunk_task(big_file_context &ctx, std::size_t seq) {
 
   // Legge il blocco compresso dal file
   auto decompressed = util::read_chunk(ctx.input_path.string(),
-                                     static_cast<std::size_t>(meta.offset),
-                                     static_cast<std::size_t>(meta.len));
+                                       static_cast<std::size_t>(meta.offset),
+                                       static_cast<std::size_t>(meta.len));
 
   // Decompressione in memoria
   auto raw = decompress_buffer(decompressed);
