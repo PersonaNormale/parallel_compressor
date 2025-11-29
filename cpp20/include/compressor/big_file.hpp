@@ -1,5 +1,6 @@
 #pragma once
 
+#include "threadpool/threadPool.hpp"
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
@@ -25,8 +26,10 @@ struct chunk_entry {
 /// Contesto condiviso tra tutti i task che partecipano alla compressione di un
 /// big file.
 struct big_file_context {
-  file_descriptor fd_in{};  /// file sorgente
-  file_descriptor fd_out{}; /// file di output
+  threadPool* pool;
+
+  std::filesystem::path input_path; /// path del file sorgente
+  file_descriptor fd_out{};         /// file di output
 
   std::vector<chunk_entry *> buf; /// buffer di chunk compressi
   std::size_t max_chunks{0};      /// numero totale di chunk
