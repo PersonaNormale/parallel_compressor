@@ -12,7 +12,7 @@
 
 namespace affinity {
 
-std::string get_affinity_from_env(const char* envname= "AFFINITY") {
+inline std::string get_affinity_from_env(const char* envname= "AFFINITY") {
 	const char* p = std::getenv(envname);
 	if (p && *p) return std::string(p);
 	return {};
