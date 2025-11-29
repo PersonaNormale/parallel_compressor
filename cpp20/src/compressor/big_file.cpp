@@ -9,11 +9,6 @@
 
 namespace compressor {
 
-namespace {
-// TODO Da mettere dipendente al threshold per la dimensione dello small file
-constexpr std::size_t CHUNK_SIZE = 256 * 1024;
-} // namespace
-
 compressed_chunk compress_buffer(const std::vector<unsigned char> &raw) {
   size_t out_size = 0;
 
@@ -38,10 +33,10 @@ compressed_chunk compress_buffer(const std::vector<unsigned char> &raw) {
 void chunk_task(big_file_context &ctx, std::size_t seq) {
 
   // Calcolo da dove iniziare a leggere
-  const auto offset = util::chunk_offset(seq, CHUNK_SIZE);
+  const auto offset = util::chunk_offset(seq, cfg.chunk_size);
 
   // Prendo i byte raw da compressare
-  auto raw = util::read_chunk(ctx.input_path.string(), offset, CHUNK_SIZE);
+  auto raw = util::read_chunk(ctx.input_path.string(), offset, cfg.chunk_size);
   auto compressed = compress_buffer(raw);
 
   // Prendo il puntatore alla struttura dati
@@ -170,6 +165,11 @@ bool compress_big_file(threadPool &pool,
   ctx.pool = &pool;
   ctx.input_path = input_path;
 
+  if (cfg.chunk_size == 0) {
+    std::fprintf(stderr, "Error: chunk size must be greater than 0.\n");
+    return false;
+  }
+
   // Determina dimensione file
   std::error_code ec;
   const auto size = std::filesystem::file_size(input_path, ec);
@@ -192,7 +192,7 @@ bool compress_big_file(threadPool &pool,
 
   // Numero di chunk
   ctx.max_chunks =
-      static_cast<std::size_t>((size + CHUNK_SIZE - 1) / CHUNK_SIZE);
+      static_cast<std::size_t>((size + cfg.chunk_size - 1) / cfg.chunk_size);
 
   // Alloca buffer
   ctx.buf.resize(ctx.max_chunks);
@@ -239,6 +239,15 @@ bool compress_big_file(threadPool &pool,
   for (auto *e : ctx.buf)
     delete e;
   ctx.buf.clear();
+
+  // Rimuovo gli input file se rischiesto
+  if (cfg.remove_input) {
+    std::error_code ecr;
+    std::filesystem::remove(input_path, ecr);
+    if (ecr && cfg.verbose)
+      std::fprintf(stderr, "Warning: file %s has not been removed (%s)\n",
+                   input_path.string().c_str(), ecr.message().c_str());
+  }
 
   return true;
 }

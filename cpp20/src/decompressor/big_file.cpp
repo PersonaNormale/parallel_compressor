@@ -248,6 +248,15 @@ bool decompress_big_file(threadPool &pool,
     delete e;
   ctx.buf.clear();
 
+  // Rimuovo gli input file se richiesto
+  if (cfg.remove_input) {
+    std::error_code ecr;
+    std::filesystem::remove(input_path, ecr);
+    if (ecr && cfg.verbose)
+      std::fprintf(stderr, "Warning: file %s has not been removed (%s)\n",
+                   input_path.string().c_str(), ecr.message().c_str());
+  }
+
   return true;
 }
 

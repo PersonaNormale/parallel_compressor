@@ -13,6 +13,7 @@ Opzioni:
   -r 0|1     Recur into directories (default 1)
   -C 0|1     Compress (0 preserve, 1 remove (default 0)
   -D 0|1     Decompress (0 preserve, 1 remove (default 0)
+  -k <bytes> Chunk size for parallel mode (default 262144)
   -v         Verbose mode
   -h         Help
 
@@ -38,6 +39,19 @@ inline long parseCommandLine(int argc, char *argv[]) {
     return r.ec == std::errc{} && r.ptr == end;
   };
 
+  auto to_size = [](const char *s, std::size_t &out) -> bool {
+    if (!s)
+      return false;
+    const char *begin = s;
+    const char *end = s + std::char_traits<char>::length(s);
+    unsigned long long val = 0;
+    auto r = std::from_chars(begin, end, val);
+    if (r.ec != std::errc{} || r.ptr != end)
+      return false;
+    out = static_cast<std::size_t>(val);
+    return true;
+  };
+
   bool seenC = false, seenD = false;
   int i = 1;
   while (i < argc && argv[i][0] == '-') {
@@ -48,6 +62,18 @@ inline long parseCommandLine(int argc, char *argv[]) {
     } else if (opt == "-v") {
       cfg.verbose = true;
       ++i;
+    } else if (opt == "-k") {
+      if (i + 1 >= argc) {
+        usage(argv[0]);
+        return -1;
+      }
+      std::size_t chunk = 0;
+      if (!to_size(argv[i + 1], chunk) || chunk == 0) {
+        std::fprintf(stderr, "Error: invalid chunk size.\n");
+        return -1;
+      }
+      cfg.chunk_size = chunk;
+      i += 2;
     } else if (opt == "-r" || opt == "-C" || opt == "-D") {
       if (i + 1 >= argc) {
         usage(argv[0]);
