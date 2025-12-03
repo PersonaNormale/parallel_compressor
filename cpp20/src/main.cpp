@@ -12,7 +12,7 @@
 #include <fstream>
 #include <future>
 #include <vector>
- 
+
 namespace {
 
 // Soglia (in byte) oltre la quale usiamo la pipeline chunked parallela
@@ -50,7 +50,6 @@ int main(int argc, char *argv[]) {
   bool all_ok = true;
 
   threadPool pool; // defaults to hardware_concurrency
-  std::vector<std::future<bool>> tasks;
 
   auto enqueue_file = [&](const std::filesystem::path &p) {
     if (!should_process(p)) {
@@ -58,19 +57,22 @@ int main(int argc, char *argv[]) {
         std::fprintf(stderr, "Skip: %s\n", p.string().c_str());
       return;
     }
-    tasks.emplace_back(pool.submit([path = p.string(), &pool] {
-      const std::filesystem::path p(path);
-      if (cfg.mode == COMP) {
-        if (should_use_big_compression(p))
-          return compressor::compress_big_file(pool, p);
-        return compressor::compress_small_file(p);
-      }
 
-      // Modalità decompressione: prova a riconoscere zlib, altrimenti chunked
-      if (looks_like_zlib_stream(p))
-        return decompressor::decompress_small_file(p);
-      return decompressor::decompress_big_file(pool, p);
-    }));
+    const std::filesystem::path path = p;
+
+    if (cfg.mode == COMP) {
+      if (should_use_big_compression(path)) {
+        all_ok &= compressor::compress_big_file(pool, path);
+      } else {
+        all_ok &= compressor::compress_small_file(path);
+      }
+    } else {
+      if (looks_like_zlib_stream(path)) {
+        all_ok &= decompressor::decompress_small_file(path);
+      } else {
+        all_ok &= decompressor::decompress_big_file(pool, path);
+      }
+    }
   };
 
   auto walk = [&](const std::filesystem::path &root) {
@@ -95,7 +97,8 @@ int main(int argc, char *argv[]) {
       }
     } else {
       for (auto &de : std::filesystem::directory_iterator(
-               root, std::filesystem::directory_options::skip_permission_denied)) {
+               root,
+               std::filesystem::directory_options::skip_permission_denied)) {
         std::error_code ec;
         if (de.is_regular_file(ec))
           enqueue_file(de.path());
@@ -112,10 +115,6 @@ int main(int argc, char *argv[]) {
     }
 
     enqueue_file(in);
-  }
-
-  for (auto &fut : tasks) {
-    all_ok &= pool.wait_future(fut);
   }
 
   return all_ok ? 0 : 1;
