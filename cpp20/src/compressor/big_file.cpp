@@ -5,8 +5,6 @@
 #include "util/utility.hpp"
 #include <cstdio>
 #include <filesystem>
-#include <iostream>
-#include <ostream>
 #include <vector>
 
 namespace compressor {
@@ -33,15 +31,12 @@ compressed_chunk compress_buffer(const std::vector<unsigned char> &raw) {
 }
 
 void chunk_task(big_file_context &ctx, std::size_t seq) {
-  std::cout << "Inizia chunk task " << seq << std::endl;
 
   // Calcolo da dove iniziare a leggere
   const auto offset = util::chunk_offset(seq, cfg.chunk_size);
 
   // Prendo i byte raw da compressare
-  std::cout << "Leggo chunk" << seq << std::endl;
   auto raw = util::read_chunk(ctx.input_path.string(), offset, cfg.chunk_size);
-  std::cout << "Comprimo chunk" << seq << std::endl;
   auto compressed = compress_buffer(raw);
 
   // Prendo il puntatore alla struttura dati
@@ -49,26 +44,17 @@ void chunk_task(big_file_context &ctx, std::size_t seq) {
   // Con memory_order_release mi accerto di impostare ready a true
   // unicamente quando pronto quando tutti i dati sono scritti
   // Già da qui il writer può vedere che il chunk è pronto
-  std::cout << "Leggo la chunk entry" << seq << std::endl;
   chunk_entry *e = ctx.buf[seq];
-  std::cout << "Muovo il dato compresso" << seq << std::endl;
   e->data = std::move(compressed);
-  std::cout << "Scrivo la store a true" << seq << std::endl;
   e->ready.store(true, std::memory_order_release);
 
   // Prendo il chunk aspettato in questo momento
-  std::cout << "Prendo e controllo che chunk si aspetta ora" << seq
-            << std::endl;
   const auto c = ctx.curr.load(std::memory_order_acquire);
   // Se è in questo task allora prendo la lock e notifico il writer
   if (seq == c) {
-    std::cout << "Si è lo stesso e prendo la lock" << seq << std::endl;
     std::lock_guard<std::mutex> lk(ctx.cv_mtx);
-    std::cout << "Presa, ora notifico" << seq << std::endl;
     ctx.cv.notify_one();
-    std::cout << "Notificato" << seq << std::endl;
   }
-  std::cout << "Finisce chunk task" << seq << std::endl;
 }
 
 void writer_task(big_file_context &ctx) {
@@ -76,7 +62,6 @@ void writer_task(big_file_context &ctx) {
   std::unique_lock<std::mutex> lk(ctx.cv_mtx);
 
   while (true) {
-    std::cout << "Sono in wait :/" << std::endl;
 
     // Aspetta sulla lock finché:
     //   prendendo il valore del prossimo chunk da scrivere prima delle altre
@@ -92,24 +77,15 @@ void writer_task(big_file_context &ctx) {
                    c == ctx.max_chunks);
 
       if (!r && !done) {
-        std::cout << "[PRED] c=" << c << " max=" << ctx.max_chunks << " ready="
-                  << (c < ctx.max_chunks
-                          ? ctx.buf[c]->ready.load(std::memory_order_relaxed)
-                          : false)
-                  << " all_sched="
-                  << ctx.all_chunks_scheduled.load(std::memory_order_relaxed)
-                  << std::endl;
       }
 
       return r || done;
     });
 
-    std::cout << "Svegliato, presa la lock" << std::endl;
 
     // Prima di tutte le operazioni di load riprendi il valore del chunk
     // corrente da scrivere
     std::size_t c = ctx.curr.load(std::memory_order_acquire);
-    std::cout << "Preso il valore del chunk corrente da scrivere" << std::endl;
 
     // Caso: chunk pronto
     // Qui creeremo la window di chunk pronti più lunga possibile per una write
@@ -117,7 +93,6 @@ void writer_task(big_file_context &ctx) {
     // L'intervallo sarà [current_chunk, end)
     if (c < ctx.max_chunks &&
         ctx.buf[c]->ready.load(std::memory_order_acquire)) {
-      std::cout << "Chunk pronto" << std::endl;
       // La fine per ora è il prossimo chunk da scrivere
       std::size_t end = c;
       // Finché siamo sotto la fine dei chunks e il prossimo chunk è pronto
@@ -140,14 +115,12 @@ void writer_task(big_file_context &ctx) {
 
       // Libero la lock fino a che non è pronto
       lk.unlock();
-      std::cout << "Liberata la lock" << std::endl;
 
       // Inizio la fase di scrittura fuori area critica
       // Scrivo come metadato la lunghezza del chunk compresso
       // così che alla decompressione si sappia quanto è grande il chunk da
       // decomprimere
       for (auto &cc : local) {
-        std::cout << "Scrivo scrivo scrivo" << std::endl;
         // Lunghezza del chunk compresso in byte (uint64_t per portabilità)
         const std::uint64_t len = static_cast<std::uint64_t>(cc.size());
 
@@ -165,9 +138,7 @@ void writer_task(big_file_context &ctx) {
 
       // riprendo la lock e alla prossima iterazione mi rimetto in attesa sulla
       // CV
-      std::cout << "Prendo la lock" << std::endl;
       lk.lock();
-      std::cout << "Presa :)" << std::endl;
 
       continue;
     }

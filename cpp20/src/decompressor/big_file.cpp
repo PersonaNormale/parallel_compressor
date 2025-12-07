@@ -1,12 +1,8 @@
 #include "decompressor/big_file.hpp"
-
 #include "util/config.hpp"
 #include "util/utility.hpp"
-
 #include <cerrno>
 #include <cstring>
-#include <iostream>
-#include <ostream>
 #include <stdexcept>
 
 namespace decompressor {
@@ -137,8 +133,6 @@ void writer_task(big_file_context &ctx) {
       return false;
     });
 
-    std::cout << "Sono stato svegliato" << std::endl;
-
     std::size_t c = ctx.curr.load(std::memory_order_acquire);
 
     // Caso: chunk corrente pronto
@@ -162,11 +156,9 @@ void writer_task(big_file_context &ctx) {
 
       // Scrittura fuori dalla sezione critica
       lk.unlock();
-      std::cout << "Scrivo scrivo scrivo" << std::endl;
       for (auto &block : local)
         util::write_chunk(ctx.fd_out, block.data(), block.size());
       lk.lock();
-      std::cout << "Finito di scrivere" << std::endl;
 
       continue;
     }
