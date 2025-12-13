@@ -7,16 +7,10 @@
 #include "util/config.hpp"
 #include "util/utility.hpp"
 
-#include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <future>
-#include <vector>
 
 namespace {
-
-// Soglia (in byte) oltre la quale usiamo la pipeline chunked parallela
-constexpr std::uintmax_t BIG_FILE_THRESHOLD = 256 * 1024; // 256 KB
 
 // Riconosce un header zlib (RFC1950) per distinguere i file compressi small
 bool looks_like_zlib_stream(const std::filesystem::path &p) {
@@ -37,7 +31,7 @@ bool should_use_big_compression(const std::filesystem::path &p) {
   const auto size = std::filesystem::file_size(p, ec);
   if (ec)
     return false;
-  return size >= BIG_FILE_THRESHOLD;
+  return size >= cfg.chunk_size;
 }
 
 } // namespace
