@@ -1,10 +1,10 @@
 #include "compressor/big_file.hpp"
 #include "compressor/compressor.hpp"
-#include "threadpool/threadPool.hpp"
 #include "util/config.hpp"
 #include "util/utility.hpp"
 #include <cstdio>
 #include <filesystem>
+#include <omp.h>
 #include <vector>
 
 namespace compressor {
@@ -12,20 +12,14 @@ namespace compressor {
 compressed_chunk compress_buffer(const std::vector<unsigned char> &raw) {
   size_t out_size = 0;
 
-  void *out = tdefl_compress_mem_to_heap(
-      raw.data(),             // input buffer
-      raw.size(),             // input size
-      &out_size,              // output size written
-      TDEFL_WRITE_ZLIB_HEADER // o 0 se vuoi raw DEFLATE
-  );
+  void *out = tdefl_compress_mem_to_heap(raw.data(), raw.size(), &out_size,
+                                         TDEFL_WRITE_ZLIB_HEADER);
 
   if (!out || out_size == 0)
     throw std::runtime_error("compression failed");
 
-  compressed_chunk res;
-  res.resize(out_size);
+  compressed_chunk res(out_size);
   memcpy(res.data(), out, out_size);
-
   mz_free(out);
   return res;
 }
@@ -33,36 +27,36 @@ compressed_chunk compress_buffer(const std::vector<unsigned char> &raw) {
 void chunk_task(big_file_context &ctx, std::size_t seq) {
   const auto offset = util::chunk_offset(seq, cfg.chunk_size);
   auto raw = util::read_chunk(ctx.input_path.string(), offset, cfg.chunk_size);
+
   auto compressed = compress_buffer(raw);
 
   chunk_entry *e = ctx.buf[seq];
   e->data = std::move(compressed);
 }
 
-// Scrive il chunk seq quando è pronto.
-void writer_write_one_chunk(big_file_context &ctx, std::size_t seq) {
+// Scrittura del singolo chunk (collector ordinato)
+static void writer_write_one_chunk(big_file_context &ctx, std::size_t seq) {
   chunk_entry *ce = ctx.buf[seq];
-
-  // Dati compressi prodotti da chunk_task
   const auto &vec = ce->data;
 
+  // Scrivi lunghezza del chunk compresso
   std::uint64_t len = vec.size();
   if (std::fwrite(&len, sizeof(len), 1, ctx.fd_out) != 1) {
-    // gestione error
+    // gestione errore
   }
 
+  // Scrivi i dati compressi
   if (!vec.empty()) {
     size_t written = std::fwrite(vec.data(), 1, vec.size(), ctx.fd_out);
     if (written != vec.size()) {
-      // Gestione errore scrittura se vuoi
+      // gestione errore
     }
   }
 }
 
-bool compress_big_file(threadPool &pool,
-                       const std::filesystem::path &input_path) {
+// Orchestratore di alto livello
+bool compress_big_file(const std::filesystem::path &input_path) {
   big_file_context ctx{};
-  ctx.pool = &pool;
   ctx.input_path = input_path;
 
   if (cfg.chunk_size == 0) {
@@ -90,7 +84,7 @@ bool compress_big_file(threadPool &pool,
     return true;
   }
 
-  // Numero di chunk
+  // Numero chunk
   ctx.max_chunks =
       static_cast<std::size_t>((size + cfg.chunk_size - 1) / cfg.chunk_size);
 
@@ -115,30 +109,35 @@ bool compress_big_file(threadPool &pool,
     return false;
   }
 
+  // Parallelizzazione OpenMP (pattern farm + collector)
 #pragma omp parallel
 #pragma omp single
   {
     for (std::size_t seq = 0; seq < ctx.max_chunks; ++seq) {
 
-// Produzione chunk seq
+      // Worker
 #pragma omp task firstprivate(seq) depend(out : ctx.buf[seq])
       {
         chunk_task(ctx, seq);
       }
 
-// Scrittura chunk seq in ordine
+      // Collector
 #pragma omp task firstprivate(seq) depend(in : ctx.buf[seq])
       {
-        writer_write_one_chunk(
-            ctx, seq); // estrai da writer_task la logica "scrivi chunk seq"
+        writer_write_one_chunk(ctx, seq);
       }
     }
-    // fine single: attende tutti i task
   }
 
-  // cleanup come prima
+  // Cleanup
+  if (ctx.fd_out) {
+    std::fclose(ctx.fd_out);
+    ctx.fd_out = nullptr;
+  }
+
   for (auto *e : ctx.buf)
     delete e;
+
   ctx.buf.clear();
 
   if (cfg.remove_input) {
