@@ -353,9 +353,7 @@ inline bool should_use_big_compression(const std::filesystem::path &p) {
   return size >= cfg.chunk_size;
 }
 
-// ==================================
 // Supporto a lettura chunk paralleli
-// ==================================
 
 namespace util {
 

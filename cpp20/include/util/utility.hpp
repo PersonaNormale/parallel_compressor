@@ -329,9 +329,31 @@ inline bool walkDir(const char *dir_cstr) {
   return all_ok;
 }
 
-// ==================================
+/// Funzione per ausiliaria per capire se un file è stato compresso con DEFLATE
+/// in una sola chiamata.
+inline bool looks_like_zlib_stream(const std::filesystem::path &p) {
+  std::ifstream in(p, std::ios::binary);
+  unsigned char cmf = 0, flg = 0;
+  if (!in.read(reinterpret_cast<char *>(&cmf), 1) ||
+      !in.read(reinterpret_cast<char *>(&flg), 1))
+    return false;
+
+  const bool method_ok = (cmf & 0x0F) == 8;
+  const bool checksum_ok = ((static_cast<unsigned>(cmf) << 8) + flg) % 31 == 0;
+  return method_ok && checksum_ok;
+}
+
+/// Funzione ausiliaria per capire se un file supera il threshold in byte tale
+/// da usare una compressione parallela.
+inline bool should_use_big_compression(const std::filesystem::path &p) {
+  std::error_code ec;
+  const auto size = std::filesystem::file_size(p, ec);
+  if (ec)
+    return false;
+  return size >= cfg.chunk_size;
+}
+
 // Supporto a lettura chunk paralleli
-// ==================================
 
 namespace util {
 

@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <mutex>
 #include <vector>
+#include <memory>
 
 namespace compressor {
 
@@ -31,9 +32,9 @@ struct big_file_context {
   std::filesystem::path input_path; /// path del file sorgente
   file_descriptor fd_out{};         /// file di output
 
-  std::vector<chunk_entry *> buf; /// buffer di chunk compressi
-  std::size_t max_chunks{0};      /// numero totale di chunk
-  std::atomic_size_t curr{0};     /// indice del prossimo chunk da scrivere
+  std::vector<std::unique_ptr<chunk_entry>> buf; /// buffer di chunk compressi
+  std::size_t max_chunks{0};                     /// numero totale di chunk
+  std::atomic_size_t curr{0}; /// indice del prossimo chunk da scrivere
 
   std::atomic_bool all_chunks_scheduled{false};
 

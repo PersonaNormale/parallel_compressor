@@ -87,6 +87,10 @@ bool compress_big_file(const std::filesystem::path &input_path) {
 
   // Se la size è nulla termino subito
   if (size == 0) {
+    if (cfg.verbose) {
+      std::fprintf(stderr, "Skip, empty file: %s\n",
+                   input_path.string().c_str());
+    }
     std::filesystem::path out = input_path;
     out += cfg.out_ext;
     FILE *f = std::fopen(out.string().c_str(), "wb");
@@ -108,10 +112,18 @@ bool compress_big_file(const std::filesystem::path &input_path) {
   std::filesystem::path out = input_path;
   out += cfg.out_ext;
 
+  if (cfg.verbose) {
+    std::fprintf(stderr, "[C] %s -> %s\n", input_path.string().c_str(),
+                 out.string().c_str());
+  }
+
   // Apro il file descriptor dell'output
   ctx.fd_out = std::fopen(out.string().c_str(), "wb");
-  if (!ctx.fd_out)
+  if (!ctx.fd_out) {
+    std::fprintf(stderr, "Error: cannot open output file: %s\n",
+                 out.string().c_str());
     return false;
+  }
 
   // For non parallelizzato poiché l'allocazione è piccola
   // new non scala bene, le allocazioni dinamiche contendono l'allocator
@@ -158,8 +170,14 @@ bool compress_big_file(const std::filesystem::path &input_path) {
 
   std::fclose(ctx.fd_out);
 
-  if (cfg.remove_input)
-    std::filesystem::remove(input_path);
+  if (cfg.remove_input) {
+    std::error_code ecr;
+    std::filesystem::remove(input_path, ecr);
+    if (ecr && cfg.verbose) {
+      std::fprintf(stderr, "Warning: file %s has not been removed (%s)\n",
+                   input_path.string().c_str(), ecr.message().c_str());
+    }
+  }
 
   return true;
 }

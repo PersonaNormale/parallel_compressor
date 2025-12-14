@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <vector>
 
@@ -34,8 +35,9 @@ struct big_file_context {
   std::filesystem::path input_path;
   file_descriptor fd_out{nullptr};
 
-  std::vector<chunk_index> index;   // metadati chunk compressi
-  std::vector<dechunk_entry *> buf; // buffer condiviso dei chunk decompattati
+  std::vector<chunk_index> index; // metadati chunk compressi
+  std::vector<std::unique_ptr<dechunk_entry>>
+      buf; // buffer condiviso dei chunk decompattati
 
   std::size_t max_chunks{0};
   std::atomic_size_t curr{0}; // prossimo chunk da scrivere

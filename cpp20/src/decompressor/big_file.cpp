@@ -99,7 +99,7 @@ void chunk_task(big_file_context &ctx, std::size_t seq) {
   auto raw = decompress_buffer(decompressed);
 
   // Pubblica il risultato nel buffer condiviso
-  dechunk_entry *e = ctx.buf[seq];
+  dechunk_entry *e = ctx.buf[seq].get();
   e->data = std::move(raw);
   e->ready.store(true, std::memory_order_release);
 
@@ -198,12 +198,19 @@ bool decompress_big_file(threadPool &pool,
 
   // Costruisce il path di output
   std::filesystem::path out = make_output_path(input_path);
+  if (cfg.verbose) {
+    std::fprintf(stderr, "[D] %s -> %s\n", input_path.string().c_str(),
+                 out.string().c_str());
+  }
   ctx.fd_out = std::fopen(out.string().c_str(), "wb");
   if (!ctx.fd_out)
     return false;
 
   // Caso file vuoto: nessun chunk
   if (ctx.max_chunks == 0) {
+    if (cfg.verbose)
+      std::fprintf(stderr, "Skip, empty file: %s\n",
+                   input_path.string().c_str());
     std::fclose(ctx.fd_out);
     ctx.fd_out = nullptr;
     return true;
@@ -211,15 +218,8 @@ bool decompress_big_file(threadPool &pool,
 
   // Alloca il buffer dei chunk
   ctx.buf.resize(ctx.max_chunks);
-  try {
-    for (std::size_t i = 0; i < ctx.max_chunks; ++i)
-      ctx.buf[i] = new dechunk_entry{};
-  } catch (...) {
-    for (auto *e : ctx.buf)
-      delete e;
-    ctx.buf.clear();
-    throw;
-  }
+  for (std::size_t i = 0; i < ctx.max_chunks; ++i)
+    ctx.buf[i] = std::make_unique<dechunk_entry>();
 
   ctx.curr.store(0, std::memory_order_relaxed);
   ctx.all_chunks_scheduled.store(false, std::memory_order_relaxed);
@@ -242,8 +242,6 @@ bool decompress_big_file(threadPool &pool,
   writer_future.get();
 
   // Cleanup
-  for (auto *e : ctx.buf)
-    delete e;
   ctx.buf.clear();
 
   // Rimuovo gli input file se richiesto

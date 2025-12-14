@@ -44,7 +44,7 @@ void chunk_task(big_file_context &ctx, std::size_t seq) {
   // Con memory_order_release mi accerto di impostare ready a true
   // unicamente quando pronto quando tutti i dati sono scritti
   // Già da qui il writer può vedere che il chunk è pronto
-  chunk_entry *e = ctx.buf[seq];
+  chunk_entry *e = ctx.buf[seq].get();
   e->data = std::move(compressed);
   e->ready.store(true, std::memory_order_release);
 
@@ -81,7 +81,6 @@ void writer_task(big_file_context &ctx) {
 
       return r || done;
     });
-
 
     // Prima di tutte le operazioni di load riprendi il valore del chunk
     // corrente da scrivere
@@ -182,6 +181,11 @@ bool compress_big_file(threadPool &pool,
 
   // Caso file vuoto
   if (size == 0) {
+    if (cfg.verbose) {
+      std::fprintf(stderr, "Skip, empty file: %s\n",
+                   input_path.string().c_str());
+    }
+
     std::filesystem::path out = input_path;
     out += cfg.out_ext;
     FILE *f = std::fopen(out.string().c_str(), "wb");
@@ -197,14 +201,8 @@ bool compress_big_file(threadPool &pool,
 
   // Alloca buffer
   ctx.buf.resize(ctx.max_chunks);
-  try {
-    for (std::size_t i = 0; i < ctx.max_chunks; ++i)
-      ctx.buf[i] = new chunk_entry{};
-  } catch (...) {
-    for (auto *e : ctx.buf)
-      delete e;
-    throw;
-  }
+  for (std::size_t i = 0; i < ctx.max_chunks; ++i)
+    ctx.buf[i] = std::make_unique<chunk_entry>();
 
   ctx.curr.store(0, std::memory_order_relaxed);
   ctx.all_chunks_scheduled.store(false, std::memory_order_relaxed);
@@ -212,10 +210,17 @@ bool compress_big_file(threadPool &pool,
   // Apre output
   std::filesystem::path out = input_path;
   out += cfg.out_ext;
+
+  if (cfg.verbose) {
+    std::fprintf(stderr, "[C] %s -> %s\n", input_path.string().c_str(),
+                 out.string().c_str());
+  }
+
   ctx.fd_out = std::fopen(out.string().c_str(), "wb");
   if (!ctx.fd_out) {
-    for (auto *e : ctx.buf)
-      delete e;
+    std::fprintf(stderr, "Error: cannot open output file: %s\n",
+                 out.string().c_str());
+    ctx.buf.clear(); // opzionale
     return false;
   }
 
@@ -238,8 +243,6 @@ bool compress_big_file(threadPool &pool,
   /*writer_future.get();*/
 
   // Cleanup
-  for (auto *e : ctx.buf)
-    delete e;
   ctx.buf.clear();
 
   // Rimuovo gli input file se rischiesto
