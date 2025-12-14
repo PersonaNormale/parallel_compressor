@@ -5,7 +5,9 @@
 #include "util/cmdline.hpp"
 #include "util/config.hpp"
 #include "util/utility.hpp"
+
 #include <filesystem>
+#include <vector>
 
 int main(int argc, char *argv[]) {
 
@@ -16,6 +18,9 @@ int main(int argc, char *argv[]) {
 
   // Flag per controllare che tutti i file siano stati compressi correttamente
   bool all_ok = true;
+
+  std::vector<std::filesystem::path> big_files;
+  std::vector<std::filesystem::path> small_files;
 
   // Funzione lambda per l'enqueuing del file
   auto enqueue_file = [&](const std::filesystem::path &p) {
@@ -31,17 +36,15 @@ int main(int argc, char *argv[]) {
     // Check se compressare o meno
     if (cfg.mode == COMP) {
       if (should_use_big_compression(path)) {
-        // Chiamata compressione parallela
-        all_ok &= compressor::compress_big_file(path);
+        big_files.push_back(path);
       } else {
-        all_ok &= compressor::compress_small_file(path);
+        small_files.push_back(path);
       }
     } else {
       if (looks_like_zlib_stream(path)) {
-        all_ok &= decompressor::decompress_small_file(path);
+        small_files.push_back(path);
       } else {
-        // Chiamata decompressione parallela
-        all_ok &= decompressor::decompress_big_file(path);
+        big_files.push_back(path);
       }
     }
   };
@@ -89,6 +92,31 @@ int main(int argc, char *argv[]) {
     }
 
     enqueue_file(in);
+  }
+
+  // Esecuzione dei big file (uno alla volta)
+  for (const auto &path : big_files) {
+    if (cfg.mode == COMP)
+      all_ok &= compressor::compress_big_file(path);
+    else
+      all_ok &= decompressor::decompress_big_file(path);
+  }
+
+  // Esecuzione degli small file in parallelo
+  #pragma omp parallel for schedule(dynamic)
+  for (std::size_t i = 0; i < small_files.size(); ++i) {
+    bool ok;
+    const auto &path = small_files[i];
+
+    if (cfg.mode == COMP)
+      ok = compressor::compress_small_file(path);
+    else
+      ok = decompressor::decompress_small_file(path);
+
+    if (!ok) {
+      #pragma omp atomic write
+      all_ok = false;
+    }
   }
 
   return all_ok ? 0 : 1;
