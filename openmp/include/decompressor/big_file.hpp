@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <memory>
 #include <vector>
 
 namespace decompressor {
@@ -26,8 +27,9 @@ struct big_file_context {
   std::filesystem::path input_path;
   file_descriptor fd_out{nullptr};
 
-  std::vector<chunk_index> index;   // metadati chunk compressi
-  std::vector<dechunk_entry *> buf; // buffer condiviso dei chunk decompressi
+  std::vector<chunk_index> index; // metadati chunk compressi
+  std::vector<std::unique_ptr<dechunk_entry>>
+      buf; // buffer condiviso dei chunk decompressi
 
   std::size_t max_chunks{0};
 };

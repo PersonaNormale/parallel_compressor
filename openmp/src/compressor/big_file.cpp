@@ -40,7 +40,7 @@ void chunk_task(big_file_context &ctx, std::size_t seq) {
   auto compressed = compress_buffer(raw);
 
   // Prendo la chunk entry dal buffer nel contesto e faccio una move dei dati
-  chunk_entry *e = ctx.buf[seq];
+  chunk_entry *e = ctx.buf[seq].get();
   e->data = std::move(compressed);
 }
 
@@ -48,7 +48,7 @@ void chunk_task(big_file_context &ctx, std::size_t seq) {
 /// Prende il contesto e il numero di sequenza da dove iniziare
 static void writer_write_one_chunk(big_file_context &ctx, std::size_t seq) {
   // Prendo la referenza al chunk entry corrente
-  chunk_entry *ce = ctx.buf[seq];
+  chunk_entry *ce = ctx.buf[seq].get();
   // Prendo il primo vettore di byte compressi
   const auto &vec = ce->data;
 
@@ -116,7 +116,7 @@ bool compress_big_file(const std::filesystem::path &input_path) {
   // For non parallelizzato poiché l'allocazione è piccola
   // new non scala bene, le allocazioni dinamiche contendono l'allocator
   for (std::size_t i = 0; i < ctx.max_chunks; ++i)
-    ctx.buf[i] = new chunk_entry{};
+    ctx.buf[i] = std::make_unique<chunk_entry>();
 
   // Viene creato un team di thread OpenMP
 #pragma omp parallel
@@ -157,11 +157,6 @@ bool compress_big_file(const std::filesystem::path &input_path) {
   }
 
   std::fclose(ctx.fd_out);
-
-  for (auto *e : ctx.buf) {
-    delete e;
-    e = nullptr;
-  }
 
   if (cfg.remove_input)
     std::filesystem::remove(input_path);

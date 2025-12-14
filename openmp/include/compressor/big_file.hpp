@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <memory>
 #include <vector>
 
 namespace compressor {
@@ -20,7 +21,7 @@ struct big_file_context {
   std::filesystem::path input_path;
   file_descriptor fd_out{nullptr};
 
-  std::vector<chunk_entry *> buf;
+  std::vector<std::unique_ptr<chunk_entry>> buf;
   std::size_t max_chunks{0};
 
   std::vector<writer_token> write_token;

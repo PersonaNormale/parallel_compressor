@@ -105,7 +105,7 @@ void chunk_task(big_file_context &ctx, std::size_t seq) {
   auto raw = decompress_buffer(compressed);
 
   // Prendo la referenza a dove devo posizionare il chunk decompresso
-  dechunk_entry *e = ctx.buf[seq];
+  dechunk_entry *e = ctx.buf[seq].get();
   // Muovo i raw bytes nella locazione
   e->data = std::move(raw);
 }
@@ -113,7 +113,7 @@ void chunk_task(big_file_context &ctx, std::size_t seq) {
 /// Writer del singolo chunk (collector ordinato)
 static void writer_write_one_chunk(big_file_context &ctx, std::size_t seq) {
   // Prendo la referenza ad una chunk entry e ad una sua entrata
-  dechunk_entry *e = ctx.buf[seq];
+  dechunk_entry *e = ctx.buf[seq].get();
   auto &block = e->data;
 
   // Se il blocco non è vuoto lo scrivo sul fd
@@ -175,7 +175,7 @@ bool decompress_big_file(const std::filesystem::path &input_path) {
   // Alloca buffer
   ctx.buf.resize(ctx.max_chunks);
   for (std::size_t i = 0; i < ctx.max_chunks; ++i)
-    ctx.buf[i] = new dechunk_entry{};
+    ctx.buf[i] = std::make_unique<dechunk_entry>();
 
   // Parallelizzazione OpenMP: decompressione + scrittura ordinata
 #pragma omp parallel
@@ -205,10 +205,6 @@ bool decompress_big_file(const std::filesystem::path &input_path) {
     std::fclose(ctx.fd_out);
     ctx.fd_out = nullptr;
   }
-
-  // Pulisco il buffer
-  for (auto *e : ctx.buf)
-    delete e;
 
   // Rimuovi input compresso se richiesto
   if (cfg.remove_input) {
