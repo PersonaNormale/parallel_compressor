@@ -9,7 +9,7 @@ namespace decompressor {
 
 namespace {
 
-// Decomprime un singolo buffer compresso in memoria
+/// Decomprime un singolo buffer compresso in memoria
 decompressed_chunk decompress_buffer(const decompressed_chunk &decompressed) {
   size_t out_size = 0;
   void *out = tinfl_decompress_mem_to_heap(
@@ -28,23 +28,23 @@ decompressed_chunk decompress_buffer(const decompressed_chunk &decompressed) {
   return res;
 }
 
-// Costruisce il path di output a partire da quello di input
+/// Costruisce il path di output a partire da quello di input
 std::filesystem::path make_output_path(const std::filesystem::path &input) {
   const std::string s = input.string();
   const std::string &ext = cfg.out_ext;
 
-  // Se l'input termina con cfg.out_ext, rimuovila
+  // Se l'input termina con cfg.out_ext si rimuove
   if (!ext.empty() && s.size() >= ext.size() &&
       s.rfind(ext) == s.size() - ext.size())
     return std::filesystem::path{s.substr(0, s.size() - ext.size())};
 
-  // Fallback: aggiungi ".raw"
+  // Fallback aggiunge .raw
   return std::filesystem::path{s + ".raw"};
 }
 
 } // namespace
 
-// Scansiona il file compresso e costruisce index[] = {len, offset_dati}
+/// Scansiona il file compresso e costruisce index[] = {len, offset_dati}
 bool build_index(FILE *f, std::vector<chunk_index> &index_out) {
   if (!f)
     return false;
@@ -86,7 +86,7 @@ bool build_index(FILE *f, std::vector<chunk_index> &index_out) {
   return true;
 }
 
-// Task di decompressione di un singolo chunk
+/// Task di decompressione di un singolo chunk
 void chunk_task(big_file_context &ctx, std::size_t seq) {
   const chunk_index &meta = ctx.index[seq];
 
@@ -111,14 +111,15 @@ void chunk_task(big_file_context &ctx, std::size_t seq) {
   }
 }
 
-// Writer sequenziale: scrive i chunk decompattati in ordine
+/// Writer sequenziale:
+/// Scrive i chunk decompattati in ordine
 void writer_task(big_file_context &ctx) {
   std::unique_lock<std::mutex> lk(ctx.cv_mtx);
 
   while (true) {
     // Attende:
-    // 1. chunk corrente pronto, oppure
-    // 2. tutti i chunk schedulati e nessun lavoro residuo
+    // chunk corrente pronto, oppure
+    // tutti i chunk schedulati e nessun lavoro residuo
     ctx.cv.wait(lk, [&] {
       std::size_t c = ctx.curr.load(std::memory_order_acquire);
 
@@ -145,7 +146,7 @@ void writer_task(big_file_context &ctx) {
              ctx.buf[end]->ready.load(std::memory_order_acquire))
         ++end;
 
-      // Copia/muove i dati in un vettore locale
+      // Muove i dati in un vettore locale
       std::vector<decompressed_chunk> local;
       local.reserve(end - c);
       for (std::size_t i = c; i < end; ++i)
@@ -163,9 +164,9 @@ void writer_task(big_file_context &ctx) {
       continue;
     }
 
-    // Se siamo qui, il chunk corrente NON è pronto.
-    // Con il predicato della wait, l'unica possibilità è:
-    // all_chunks_sched == true e curr == max_chunks.
+    // Se siamo qui, il chunk corrente non è pronto.
+    // Con il predicato della wait, l'unica possibilità è
+    // all_chunks_sched = true e curr = max_chunks.
     break;
   }
 
@@ -177,7 +178,7 @@ void writer_task(big_file_context &ctx) {
   }
 }
 
-// Orchestratore per la decompressione di un big file
+/// Orchestratore per la decompressione di un big file
 bool decompress_big_file(threadPool &pool,
                          const std::filesystem::path &input_path) {
   big_file_context ctx{};
