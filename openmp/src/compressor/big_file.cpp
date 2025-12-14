@@ -49,7 +49,7 @@ static void writer_write_one_chunk(big_file_context &ctx, std::size_t seq) {
   if (!vec.empty()) {
     size_t written = std::fwrite(vec.data(), 1, vec.size(), ctx.fd_out);
     if (written != vec.size()) {
-      // gestione errore
+      // TODO gestione errore
     }
   }
 }
@@ -59,21 +59,14 @@ bool compress_big_file(const std::filesystem::path &input_path) {
   big_file_context ctx{};
   ctx.input_path = input_path;
 
-  if (cfg.chunk_size == 0) {
-    std::fprintf(stderr, "Error: chunk size must be greater than 0.\n");
+  if (cfg.chunk_size == 0)
     return false;
-  }
 
-  // Determina dimensione file
   std::error_code ec;
   const auto size = std::filesystem::file_size(input_path, ec);
-  if (ec) {
-    std::fprintf(stderr, "Error: cannot stat input file: %s\n",
-                 input_path.string().c_str());
+  if (ec)
     return false;
-  }
 
-  // Caso file vuoto
   if (size == 0) {
     std::filesystem::path out = input_path;
     out += cfg.out_ext;
@@ -84,69 +77,58 @@ bool compress_big_file(const std::filesystem::path &input_path) {
     return true;
   }
 
-  // Numero chunk
   ctx.max_chunks =
       static_cast<std::size_t>((size + cfg.chunk_size - 1) / cfg.chunk_size);
 
-  // Alloca buffer
   ctx.buf.resize(ctx.max_chunks);
-  try {
-    for (std::size_t i = 0; i < ctx.max_chunks; ++i)
-      ctx.buf[i] = new chunk_entry{};
-  } catch (...) {
-    for (auto *e : ctx.buf)
-      delete e;
-    throw;
-  }
+  ctx.write_token.resize(ctx.max_chunks);
 
-  // Apre output
+  for (std::size_t i = 0; i < ctx.max_chunks; ++i)
+    ctx.buf[i] = new chunk_entry{};
+
   std::filesystem::path out = input_path;
   out += cfg.out_ext;
-  ctx.fd_out = std::fopen(out.string().c_str(), "wb");
-  if (!ctx.fd_out) {
-    for (auto *e : ctx.buf)
-      delete e;
-    return false;
-  }
 
-  // Parallelizzazione OpenMP (pattern farm + collector)
+  ctx.fd_out = std::fopen(out.string().c_str(), "wb");
+  if (!ctx.fd_out)
+    return false;
+
 #pragma omp parallel
 #pragma omp single
   {
     for (std::size_t seq = 0; seq < ctx.max_chunks; ++seq) {
 
-      // Worker
+      // WORKER: lettura + compressione (parallela)
 #pragma omp task firstprivate(seq) depend(out : ctx.buf[seq])
       {
         chunk_task(ctx, seq);
       }
 
-      // Collector
-#pragma omp task firstprivate(seq) depend(in : ctx.buf[seq])
-      {
-        writer_write_one_chunk(ctx, seq);
+      // WRITER: serializzato e ordinato
+      if (seq == 0) {
+#pragma omp task firstprivate(seq) depend(in : ctx.buf[seq]) depend(inout : ctx.write_token[seq])
+        {
+          writer_write_one_chunk(ctx, seq);
+        }
+      } else {
+#pragma omp task firstprivate(seq) depend(in : ctx.buf[seq]) depend(in : ctx.write_token[seq - 1]) depend(inout : ctx.write_token[seq])
+        {
+          writer_write_one_chunk(ctx, seq);
+        }
       }
     }
   }
 
-  // Cleanup
-  if (ctx.fd_out) {
-    std::fclose(ctx.fd_out);
-    ctx.fd_out = nullptr;
-  }
+  std::fclose(ctx.fd_out);
 
   for (auto *e : ctx.buf)
     delete e;
 
   ctx.buf.clear();
+  ctx.write_token.clear();
 
-  if (cfg.remove_input) {
-    std::error_code ecr;
-    std::filesystem::remove(input_path, ecr);
-    if (ecr && cfg.verbose)
-      std::fprintf(stderr, "Warning: file %s has not been removed (%s)\n",
-                   input_path.string().c_str(), ecr.message().c_str());
-  }
+  if (cfg.remove_input)
+    std::filesystem::remove(input_path);
 
   return true;
 }

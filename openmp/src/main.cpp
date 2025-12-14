@@ -5,47 +5,21 @@
 #include "util/cmdline.hpp"
 #include "util/config.hpp"
 #include "util/utility.hpp"
-
-#include <cstdint>
 #include <filesystem>
-#include <fstream>
-
-namespace {
-
-bool looks_like_zlib_stream(const std::filesystem::path &p) {
-  std::ifstream in(p, std::ios::binary);
-  unsigned char cmf = 0, flg = 0;
-  if (!in.read(reinterpret_cast<char *>(&cmf), 1) ||
-      !in.read(reinterpret_cast<char *>(&flg), 1))
-    return false;
-
-  const bool method_ok = (cmf & 0x0F) == 8;
-  const bool checksum_ok = ((static_cast<unsigned>(cmf) << 8) + flg) % 31 == 0;
-  return method_ok && checksum_ok;
-}
-
-bool should_use_big_compression(const std::filesystem::path &p) {
-  std::error_code ec;
-  const auto size = std::filesystem::file_size(p, ec);
-  if (ec)
-    return false;
-  return size >= cfg.chunk_size;
-}
-
-} // namespace
 
 int main(int argc, char *argv[]) {
 
+  // Command line parsing
   const long first_arg = parseCommandLine(argc, argv);
   if (first_arg < 0)
     return 1;
 
+  // Flag per controllare che tutti i file siano stati compressi correttamente
   bool all_ok = true;
 
-  // RIMOSSO: threadpool non serve più
-  // threadPool pool;
-
+  // Funzione lambda per l'enqueuing del file
   auto enqueue_file = [&](const std::filesystem::path &p) {
+    // Check per vedere se un file è necessario comprimerlo o meno
     if (!should_process(p)) {
       if (cfg.verbose)
         std::fprintf(stderr, "Skip: %s\n", p.string().c_str());
@@ -54,8 +28,10 @@ int main(int argc, char *argv[]) {
 
     const std::filesystem::path path = p;
 
+    // Check se compressare o meno
     if (cfg.mode == COMP) {
       if (should_use_big_compression(path)) {
+        // Chiamata compressione parallela
         all_ok &= compressor::compress_big_file(path);
       } else {
         all_ok &= compressor::compress_small_file(path);
@@ -64,41 +40,42 @@ int main(int argc, char *argv[]) {
       if (looks_like_zlib_stream(path)) {
         all_ok &= decompressor::decompress_small_file(path);
       } else {
+        // Chiamata decompressione parallela
         all_ok &= decompressor::decompress_big_file(path);
       }
     }
   };
 
+  // Funzione per il walk nel filesystem delle directory con controllo se il
+  // flag ricorsivo sia attivo o meno
   auto walk = [&](const std::filesystem::path &root) {
     if (!std::filesystem::exists(root) ||
         !std::filesystem::is_directory(root)) {
-      std::fprintf(stderr, "Non è una directory: %s\n", root.string().c_str());
       all_ok = false;
       return;
     }
 
     if (cfg.recursive) {
-      std::filesystem::directory_options opts =
+      const auto opts =
           std::filesystem::directory_options::skip_permission_denied;
 
-      for (auto it = std::filesystem::recursive_directory_iterator(root, opts),
-                end = std::filesystem::recursive_directory_iterator();
-           it != end; ++it) {
+      for (const auto &entry :
+           std::filesystem::recursive_directory_iterator(root, opts)) {
 
         std::error_code ec;
-        if (it->is_symlink(ec) || it->is_directory(ec))
-          continue;
-        if (it->is_regular_file(ec))
-          enqueue_file(it->path());
+        if (entry.is_regular_file(ec)) {
+          enqueue_file(entry.path());
+        }
       }
     } else {
-      for (auto &de : std::filesystem::directory_iterator(
+      for (const auto &de : std::filesystem::directory_iterator(
                root,
                std::filesystem::directory_options::skip_permission_denied)) {
 
         std::error_code ec;
-        if (de.is_regular_file(ec))
+        if (de.is_regular_file(ec)) {
           enqueue_file(de.path());
+        }
       }
     }
   };

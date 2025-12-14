@@ -100,6 +100,7 @@ static void writer_write_one_chunk(big_file_context &ctx, std::size_t seq) {
 
   if (!block.empty())
     util::write_chunk(ctx.fd_out, block.data(), block.size());
+
 }
 
 // Funzione di alto livello: decomprime il big file con OpenMP
@@ -109,8 +110,11 @@ bool decompress_big_file(const std::filesystem::path &input_path) {
 
   // Apre input compresso
   FILE *f = std::fopen(input_path.string().c_str(), "rb");
-  if (!f)
+  if (!f) {
+    std::fprintf(stderr, "Error: cannot open input file: %s\n",
+                 input_path.string().c_str());
     return false;
+  }
 
   const bool ok = build_index(f, ctx.index);
   std::fclose(f);
@@ -121,11 +125,25 @@ bool decompress_big_file(const std::filesystem::path &input_path) {
 
   // Path di output
   std::filesystem::path out = make_output_path(input_path);
+
+  if (cfg.verbose) {
+    std::fprintf(stderr, "[D] %s -> %s\n", input_path.string().c_str(),
+                 out.string().c_str());
+  }
+
   ctx.fd_out = std::fopen(out.string().c_str(), "wb");
-  if (!ctx.fd_out)
+  if (!ctx.fd_out) {
+    std::fprintf(stderr, "Error: cannot open output file: %s\n",
+                 out.string().c_str());
     return false;
+  }
 
   if (ctx.max_chunks == 0) {
+
+    if (cfg.verbose)
+      std::fprintf(stderr, "Skip, empty file: %s\n",
+                   input_path.string().c_str());
+
     std::fclose(ctx.fd_out);
     ctx.fd_out = nullptr;
     return true;
