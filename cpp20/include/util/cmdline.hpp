@@ -13,7 +13,7 @@ Opzioni:
   -r 0|1     Recur into directories (default 1)
   -C 0|1     Compress (0 preserve, 1 remove (default 0))
   -D 0|1     Decompress (0 preserve, 1 remove (default 0))
-  -k <bytes>  Small-file threshold and chunk size (default 262144)
+  -k <bytes>  Small-file threshold and chunk size (default 4 MiB)
   -v         Verbose mode
   -h         Help
 
