@@ -174,28 +174,52 @@ bool decompress_big_file(const std::filesystem::path &input_path) {
 
   // Alloca buffer
   ctx.buf.resize(ctx.max_chunks);
+  // ALloca i write_token
+  ctx.write_token.resize(ctx.max_chunks);
   for (std::size_t i = 0; i < ctx.max_chunks; ++i)
     ctx.buf[i] = std::make_unique<dechunk_entry>();
 
-  // Parallelizzazione OpenMP: decompressione + scrittura ordinata
+// Parallelizzazione OpenMP: schema farm + collector
+// I worker decompressano i chunk in parallelo
+// I writer scrivono i chunk in ordine, uno alla volta
 #pragma omp parallel
 #pragma omp single
   {
+    // Itera su tutti i chunk del file
     for (std::size_t seq = 0; seq < ctx.max_chunks; ++seq) {
 
-      // WORKER produce il chunk seq
-      // Prende il suo seq e dice che buf[seq] dipende da lui
+      // WORKER: decompressione del chunk seq
+      // Ogni task legge e decomprime un chunk indipendente
+      // Segnala al runtime che produce buf[seq]
 #pragma omp task firstprivate(seq) depend(out : ctx.buf[seq])
       {
         chunk_task(ctx, seq);
       }
 
-      // COLLECTOR: scrive il chunk seq in ordine
-      // Prende il suo seq e si mette in attesa che la dipendenza buf[seq] sia
-      // soddisfatta
-#pragma omp task firstprivate(seq) depend(in : ctx.buf[seq])
-      {
-        writer_write_one_chunk(ctx, seq);
+      // WRITER: scrittura ordinata del chunk seq
+      // Il writer parte solo quando:
+      //  - il chunk seq è pronto
+      //  - il writer precedente ha terminato
+      // In questo modo i chunk vengono scritti nell'ordine corretto
+      if (seq == 0) {
+
+        // Primo chunk: non attende writer precedenti
+        // Usa il token 0 per avviare la catena dei writer
+#pragma omp task firstprivate(seq) depend(in : ctx.buf[seq])                   \
+    depend(inout : ctx.write_token[seq])
+        {
+          writer_write_one_chunk(ctx, seq);
+        }
+
+      } else {
+
+        // Chunk successivi: attendono il writer del chunk precedente
+        // e producono il token per il writer successivo
+#pragma omp task firstprivate(seq) depend(in : ctx.buf[seq])                   \
+    depend(in : ctx.write_token[seq - 1]) depend(inout : ctx.write_token[seq])
+        {
+          writer_write_one_chunk(ctx, seq);
+        }
       }
     }
   }

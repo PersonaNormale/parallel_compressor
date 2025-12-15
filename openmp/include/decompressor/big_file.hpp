@@ -16,6 +16,9 @@ struct dechunk_entry {
   decompressed_chunk data;
 };
 
+// token usato per serializzare i writer
+struct writer_token {};
+
 // metadati di un chunk compresso all'interno del file .miniz
 struct chunk_index {
   std::uint64_t len;    // lunghezza compressa
@@ -30,8 +33,9 @@ struct big_file_context {
   std::vector<chunk_index> index; // metadati chunk compressi
   std::vector<std::unique_ptr<dechunk_entry>>
       buf; // buffer condiviso dei chunk decompressi
-
   std::size_t max_chunks{0};
+  
+  std::vector<writer_token> write_token;
 };
 
 // Scansiona il file compresso e costruisce index[] con coppie {len, offset}
